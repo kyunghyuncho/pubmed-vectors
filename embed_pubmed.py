@@ -1,17 +1,16 @@
 import sqlite3
 import numpy as np
 from nomic import embed
+from tqdm import tqdm
 
 # Define constants
-DB_FILE = "pubmed_data.db"
+DB_FILE = "pubmed_data_sample.db"
 VECTOR_FILE = "embedded_vectors.npy"
+PMID_FILE = "pmids.npy"
 
 # Connect to SQLite database
 conn = sqlite3.connect(DB_FILE)
 cur = conn.cursor()
-
-# Load Nomic's embedding model
-embedder = Embedder()
 
 # Fetch all abstracts from the database
 cur.execute("SELECT pmid, abstract FROM articles WHERE abstract IS NOT NULL")
@@ -22,7 +21,7 @@ embeddings = []
 pmids = []
 
 # Embed each abstract and store the result
-for pmid, abstract in rows:
+for pmid, abstract in tqdm(rows, desc="Embedding abstracts", unit="abstract", ncols=100):
     output = embed.text(
         texts=[abstract],
         model='nomic-embed-text-v1.5',
@@ -41,9 +40,9 @@ pmids_array = np.array(pmids)
 
 # Save the embeddings and PMIDs to a binary file
 np.save(VECTOR_FILE, embeddings_array)
-np.save("pmids.npy", pmids_array)
+np.save(PMID_FILE, pmids_array)
 
 # Close the database connection
 conn.close()
 
-print(f"Embeddings saved to {VECTOR_FILE} and PMIDs saved to pmids.npy")
+print(f"Embeddings saved to {VECTOR_FILE} and PMIDs saved to {PMID_FILE}")
