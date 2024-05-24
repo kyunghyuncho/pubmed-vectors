@@ -2,6 +2,8 @@ import numpy as np
 import sqlite3
 from sklearn.metrics.pairwise import cosine_similarity
 
+from nomic import embed
+
 class AbstractRetriever:
     def __init__(self, db_file, vector_file, pmid_file):
         self.db_file = db_file
@@ -41,6 +43,17 @@ class AbstractRetriever:
         
         return abstracts, top_k_similarities
 
+    @staticmethod
+    def embed_query(query: str):
+        output = embed.text(
+            texts=[query],
+            model='nomic-embed-text-v1.5',
+            task_type="search_document",
+            inference_mode='local',
+            dimensionality=768,
+        )
+        return np.array(output['embeddings']).squeeze()
+
 # Example usage:
 if __name__ == "__main__":
     db_file = "pubmed_data.db"
@@ -50,7 +63,8 @@ if __name__ == "__main__":
     retriever = AbstractRetriever(db_file, vector_file, pmid_file)
 
     # Example query embedding (replace with an actual embedding)
-    query_embedding = np.random.rand(512)  # Assuming 512-dimensional embeddings
+    query = input("Enter your query: ")
+    query_embedding = AbstractRetriever.embed_query(query)
 
     top_k = 5
     similar_abstracts, similarities = retriever.find_similar_abstracts(query_embedding, top_k)
