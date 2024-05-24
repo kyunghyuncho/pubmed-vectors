@@ -37,7 +37,18 @@ class AbstractRetriever:
         
         return results
 
-    def find_similar_abstracts(self, query_embedding, k=5):
+    def find_similar_abstracts(self, 
+                               query_embedding: np.ndarray, 
+                               k=5):
+        top_k_pmids, top_k_similarities = self.get_top_k_similar(query_embedding, k)
+        abstracts = self.fetch_abstracts(top_k_pmids)
+        
+        return abstracts, top_k_similarities
+
+    def find_similar_abstracts(self, 
+                               query: str, 
+                               k: int = 5):
+        query_embedding = self.embed_query(query)
         top_k_pmids, top_k_similarities = self.get_top_k_similar(query_embedding, k)
         abstracts = self.fetch_abstracts(top_k_pmids)
         
