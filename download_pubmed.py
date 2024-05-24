@@ -74,6 +74,9 @@ for file in tqdm(files, desc="Downloading and processing files", unit="file"):
                     (pmid, title, authors, abstract, pub_year))
     conn.commit()
 
+    # Remove the processed file to free up space
+    os.remove(local_file)
+
 # Close connections
 ftp.quit()
 conn.close()
