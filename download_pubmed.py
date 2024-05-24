@@ -9,10 +9,12 @@ from tqdm import tqdm
 FTP_HOST = "ftp.ncbi.nlm.nih.gov"
 FTP_DIR = "/pubmed/baseline/"
 LOCAL_DIR = "pubmed_baseline"
+PLACEHOLDER_DIR = "processed_placeholders"
 DB_FILE = "pubmed_data.db"
 
-# Ensure local directory exists
+# Ensure local directories exist
 os.makedirs(LOCAL_DIR, exist_ok=True)
+os.makedirs(PLACEHOLDER_DIR, exist_ok=True)
 
 # Connect to the FTP server and list files
 ftp = ftplib.FTP(FTP_HOST)
@@ -64,6 +66,12 @@ def extract_article_data(file_path):
 
 # Download, extract, and save article data
 for file in tqdm(files, desc="Downloading and processing files", unit="file"):
+    placeholder_file = os.path.join(PLACEHOLDER_DIR, f"{file}.processed")
+    
+    if os.path.exists(placeholder_file):
+        print(f"Skipping {file}, already processed.")
+        continue
+
     local_file = os.path.join(LOCAL_DIR, file)
     if not os.path.exists(local_file):
         with open(local_file, 'wb') as f:
@@ -76,6 +84,9 @@ for file in tqdm(files, desc="Downloading and processing files", unit="file"):
 
     # Remove the processed file to free up space
     os.remove(local_file)
+    
+    # Create a placeholder file to indicate this file has been processed
+    open(placeholder_file, 'a').close()
 
 # Close connections
 ftp.quit()
