@@ -1,35 +1,44 @@
-from sentence_transformers import SentenceTransformer
+from transformers import AutoTokenizer, AutoModel
+import torch
 import sqlite3
 import numpy as np
 from tqdm import tqdm
 
-# Load the model
-model = SentenceTransformer('all-MiniLM-L6-v2')
+# Check if GPU is available
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+# Load the tokenizer and model
+tokenizer = AutoTokenizer.from_pretrained("nomic-ai/nomic-embed-text-v1.5", trust_remote_code=True)
+model = AutoModel.from_pretrained("nomic-ai/nomic-embed-text-v1.5", trust_remote_code=True).to(device)
 model.eval()  # Set the model to evaluation mode
 
 # Function to embed text snippets
-def embed_texts(texts, model):
-    return model.encode(texts, convert_to_tensor=False)
+def embed_texts(texts, tokenizer, model):
+    inputs = tokenizer(texts, padding=True, truncation=True, return_tensors="pt").to(device)
+    with torch.no_grad():
+        outputs = model(**inputs)
+    return outputs.last_hidden_state.mean(dim=1).cpu().numpy()  # Taking the mean of the hidden states as the embedding
 
 # Function to process a chunk of records
-def process_chunk(cursor, model, start, chunk_size):
-    cursor.execute(f"SELECT pmid, abstract FROM articles LIMIT {chunk_size} OFFSET {start}")
+def process_chunk(cursor, tokenizer, model, start, chunk_size):
+    cursor.execute(f"SELECT pmid, title, abstract FROM articles LIMIT {chunk_size} OFFSET {start}")
     records = cursor.fetchall()
 
     if not records:
         return False  # No more records to process
 
-    # Filter out records with None abstracts
-    records = [record for record in records if record[1] is not None]
+    # Use title if abstract is None or empty
+    pmids = []
+    texts = []
+    for pmid, title, abstract in records:
+        if abstract is None or abstract.strip() == "":
+            texts.append(title)
+        else:
+            texts.append(abstract)
+        pmids.append(pmid)
 
-    if not records:
-        return True  # Skip this chunk if no valid records are found
-
-    pmids = np.array([row[0] for row in records])
-    abstracts = [row[1] for row in records]
-
-    # Embed the abstracts
-    embeddings = embed_texts(abstracts, model)
+    # Embed the texts
+    embeddings = embed_texts(texts, tokenizer, model)
 
     # Save PMIDs and embeddings to memory-mapped arrays
     start_idx = process_chunk.start_idx
@@ -49,15 +58,15 @@ cursor = conn.cursor()
 total_records = 25_337_445 # just to speed it up
 
 # Define chunk size
-chunk_size = 100000
+chunk_size = 32
 
 # Determine the embedding size (dimensionality)
-dummy_embedding = embed_texts(["dummy text"], model)
+dummy_embedding = embed_texts(["dummy text"], tokenizer, model)
 embedding_dim = dummy_embedding.shape[1]
 
 # Create memory-mapped files for PMIDs and embeddings
 pmid_mmap = np.memmap('pmids.dat', dtype='int64', mode='w+', shape=(total_records,))
-embedding_mmap = np.memmap('embeddings.dat', dtype='float16', mode='w+', shape=(total_records, embedding_dim))
+embedding_mmap = np.memmap('embeddings.dat', dtype='float32', mode='w+', shape=(total_records, embedding_dim))
 
 # Attach memory-mapped arrays and start index to the function
 process_chunk.pmid_mmap = pmid_mmap
@@ -69,7 +78,7 @@ start = 0
 
 with tqdm(total=total_records, unit='record') as pbar:
     while True:
-        if not process_chunk(cursor, model, start, chunk_size):
+        if not process_chunk(cursor, tokenizer, model, start, chunk_size):
             break
         start += chunk_size
         pbar.update(chunk_size)

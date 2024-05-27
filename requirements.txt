@@ -5,4 +5,5 @@ torchvision
 torchaudio
 sentence-transformers 
 transformers
+einops
 nomic[local]
