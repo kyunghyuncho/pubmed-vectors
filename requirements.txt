@@ -8,3 +8,4 @@ transformers
 aiofiles
 einops
 nomic[local]
+h5py
