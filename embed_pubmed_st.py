@@ -22,7 +22,7 @@ def embed_texts(texts, tokenizer, model, device):
 
 # Function to process a chunk of records
 def process_chunk(cursor, tokenizer, model, start, chunk_size, device, pmid_dataset, embedding_dataset):
-    cursor.execute(f"SELECT pmid, title, abstract FROM articles LIMIT {chunk_size} OFFSET {start}")
+    cursor.execute(f"SELECT pmid, title, abstract FROM articles WHERE rowid IN (SELECT rowid FROM articles ORDER BY rowid LIMIT {chunk_size} OFFSET {start})")
     records = cursor.fetchall()
 
     if not records:
