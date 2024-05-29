@@ -74,7 +74,7 @@ cursor = conn.cursor()
 total_records = 25_337_445 # just to speed it up
 
 # Define chunk size
-chunk_size = 20
+chunk_size = 10
 
 # Determine the embedding size (dimensionality)
 dummy_embedding = embed_texts(["dummy text"], tokenizer, model, device)
@@ -88,7 +88,7 @@ print(f"Resuming from offset: {start_offset}")
 with open("embeddings.bin", "ab") as file:
 
     # Attach datasets and start index to the function
-    process_chunk.writer = writer
+    process_chunk.file = file
     process_chunk.start_idx = 0
 
     # Process records in chunks
