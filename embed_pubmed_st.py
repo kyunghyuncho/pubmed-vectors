@@ -1,9 +1,11 @@
 from transformers import AutoTokenizer, AutoModel
+import os
 import torch
 import sqlite3
 import numpy as np
 from tqdm import tqdm
-import h5py
+
+from array_io import write_pair_to_file, read_pair_from_file
 
 # Check if GPU is available
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -21,7 +23,7 @@ def embed_texts(texts, tokenizer, model, device):
     return outputs.last_hidden_state.mean(dim=1).cpu().numpy()  # Taking the mean of the hidden states as the embedding
 
 # Function to process a chunk of records
-def process_chunk(cursor, tokenizer, model, start, chunk_size, device, pmid_dataset, embedding_dataset):
+def process_chunk(cursor, tokenizer, model, start, chunk_size, device, file):
     cursor.execute(f"SELECT pmid, title, abstract FROM articles WHERE rowid IN (SELECT rowid FROM articles LIMIT {chunk_size} OFFSET {start})")
     records = cursor.fetchall()
 
@@ -43,11 +45,24 @@ def process_chunk(cursor, tokenizer, model, start, chunk_size, device, pmid_data
 
     # Save PMIDs and embeddings to HDF5 datasets
     start_idx = process_chunk.start_idx
-    pmid_dataset[start_idx:start_idx + len(pmids)] = pmids
-    embedding_dataset[start_idx:start_idx + len(pmids), :] = embeddings
+
+    for pid, emb in zip(pmids, embeddings):
+        write_pair_to_file(file, pid, emb)
 
     process_chunk.start_idx += len(pmids)
     return True  # Records processed
+
+# Function to get the saved offset
+def get_saved_offset(offset_file):
+    if os.path.exists(offset_file):
+        with open(offset_file, 'r') as f:
+            return int(f.read().strip())
+    return 0
+
+# Function to save the current offset
+def save_offset(offset_file, offset):
+    with open(offset_file, 'w') as f:
+        f.write(str(offset))
 
 # Connect to SQLite database
 conn = sqlite3.connect('pubmed_data.db')
@@ -59,35 +74,31 @@ cursor = conn.cursor()
 total_records = 25_337_445 # just to speed it up
 
 # Define chunk size
-chunk_size = 100
+chunk_size = 20
 
 # Determine the embedding size (dimensionality)
 dummy_embedding = embed_texts(["dummy text"], tokenizer, model, device)
 embedding_dim = dummy_embedding.shape[1]
 
+offset_file = 'offset.txt'
+start_offset = get_saved_offset(offset_file)
+print(f"Resuming from offset: {start_offset}")
+
 # Create HDF5 file and datasets for PMIDs and embeddings
-with h5py.File('embeddings.h5', 'w') as h5f:
-    pmid_dataset = h5f.create_dataset('pmids', (total_records,), dtype='int64')
-    embedding_dataset = h5f.create_dataset('embeddings', (total_records, embedding_dim), dtype='float16')
+with open("embeddings.bin", "ab") as file:
 
     # Attach datasets and start index to the function
-    process_chunk.pmid_dataset = pmid_dataset
-    process_chunk.embedding_dataset = embedding_dataset
+    process_chunk.writer = writer
     process_chunk.start_idx = 0
 
     # Process records in chunks
-    start = 0
-
-    with tqdm(total=total_records, unit='record') as pbar:
-        while True:
-            if not process_chunk(cursor, tokenizer, model, start, chunk_size, device, pmid_dataset, embedding_dataset):
-                break
-            start += chunk_size
-            pbar.update(chunk_size)
+    for start in tqdm(range(start_offset, total_records, chunk_size)):
+        process_chunk(cursor, tokenizer, model, start, chunk_size, device, file)
+        save_offset(offset_file, start + chunk_size)
 
 # Close the connection
 conn.close()
 
-print("Embedding process completed and saved to HDF5 file.")
+print("Embedding process completed and saved to a binary file.")
 
 
