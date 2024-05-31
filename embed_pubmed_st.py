@@ -46,7 +46,7 @@ def process_chunk(cursor, tokenizer, model, start, chunk_size, device, file):
             texts.append(title)
         else:
             texts.append(abstract)
-        pmids.append(pmid)
+        pmids.append(int(pmid))
 
     # Embed the texts
     embeddings = embed_texts(texts, tokenizer, model, device)
@@ -85,7 +85,7 @@ cursor = conn.cursor()
 total_records = 25_337_445 # just to speed it up
 
 # Define chunk size
-chunk_size = 20
+chunk_size = 25
 
 # Determine the embedding size (dimensionality)
 dummy_embedding = embed_texts(["dummy text"], tokenizer, model, device)
