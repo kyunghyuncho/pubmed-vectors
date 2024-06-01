@@ -1,90 +1,93 @@
 import numpy as np
+import os
+import faiss
+from transformers import AutoTokenizer, AutoModel
+import torch
 import sqlite3
-from sklearn.metrics.pairwise import cosine_similarity
-
-from nomic import embed
 
 class AbstractRetriever:
-    def __init__(self, db_file, vector_file, pmid_file):
+    def __init__(self, vectors_file, ids_file, db_file, model_name="nomic-ai/nomic-embed-text-v1.5"):
+        self.vectors_file = vectors_file
+        self.ids_file = ids_file
         self.db_file = db_file
-        self.vector_file = vector_file
-        self.pmid_file = pmid_file
-        self.embeddings = np.load(vector_file)
-        self.pmids = np.load(pmid_file)
-        
-    def _connect_db(self):
-        self.conn = sqlite3.connect(self.db_file)
-        self.cur = self.conn.cursor()
-        
-    def _close_db(self):
-        self.conn.close()
-        
-    def get_top_k_similar(self, query_embedding, k=5):
-        similarities = cosine_similarity([query_embedding], self.embeddings)[0]
-        top_k_indices = similarities.argsort()[-k:][::-1]
-        top_k_pmids = self.pmids[top_k_indices]
-        top_k_similarities = similarities[top_k_indices]
-        
-        return top_k_pmids, top_k_similarities
+        self.model_name = model_name
+        self.tokenizer = AutoTokenizer.from_pretrained(model_name)
+        self.model = AutoModel.from_pretrained(model_name)
+        self.dimension = self._infer_dimension()
+        self.dtype_vectors = 'float32'
+        self.dtype_ids = 'int64'
+        self.num_rows = self._get_num_rows()
+        self.doc_vectors_memmap = np.memmap(vectors_file, dtype=self.dtype_vectors, mode='r', shape=(self.num_rows, self.dimension))
+        self.doc_ids_memmap = np.memmap(ids_file, dtype=self.dtype_ids, mode='r', shape=(self.num_rows,))
+        self.index = self._build_faiss_index()
+        self.connection = self._connect_db()
     
-    def fetch_abstracts(self, pmids):
-        self._connect_db()
-        placeholders = ','.join('?' for _ in pmids)
-        query = f"SELECT pmid, title, authors, abstract, publication_year FROM articles WHERE pmid IN ({placeholders})"
-        self.cur.execute(query, pmids)
-        results = self.cur.fetchall()
-        self._close_db()
-        
-        return results
-
-    def find_similar_abstracts(self, 
-                               query_embedding: np.ndarray, 
-                               k=5):
-        top_k_pmids, top_k_similarities = self.get_top_k_similar(query_embedding, k)
-        abstracts = self.fetch_abstracts(top_k_pmids)
-        
-        return abstracts, top_k_similarities
-
-    def find_similar_abstracts(self, 
-                               query: str, 
-                               k: int = 5):
-        query_embedding = self.embed_query(query)
-        top_k_pmids, top_k_similarities = self.get_top_k_similar(query_embedding, k)
-        abstracts = self.fetch_abstracts(top_k_pmids)
-        
-        return abstracts, top_k_similarities
-
-    @staticmethod
-    def embed_query(query: str):
-        output = embed.text(
-            texts=[query],
-            model='nomic-embed-text-v1.5',
-            task_type="search_document",
-            inference_mode='local',
-            dimensionality=768,
-        )
-        return np.array(output['embeddings']).squeeze()
+    def _infer_dimension(self):
+        dummy_query = "dummy"
+        inputs = self.tokenizer(dummy_query, return_tensors='pt')
+        with torch.no_grad():
+            outputs = self.model(**inputs)
+        dummy_vector = outputs.last_hidden_state.mean(dim=1).squeeze().numpy()
+        dimension = dummy_vector.shape[0]
+        return dimension
+    
+    def _get_num_rows(self):
+        vectors_size = os.path.getsize(self.vectors_file)
+        ids_size = os.path.getsize(self.ids_file)
+        num_rows_vectors = vectors_size // (np.dtype(self.dtype_vectors).itemsize * self.dimension)
+        num_rows_ids = ids_size // np.dtype(self.dtype_ids).itemsize
+        assert num_rows_vectors == num_rows_ids, "Number of rows in vectors and ids files must match"
+        return num_rows_vectors
+    
+    def _build_faiss_index(self):
+        index = faiss.IndexFlatL2(self.dimension)
+        index.add(self.doc_vectors_memmap)
+        return index
+    
+    def _connect_db(self):
+        connection = sqlite3.connect(self.db_file)
+        return connection
+    
+    def _fetch_document_info(self, pmids):
+        cursor = self.connection.cursor()
+        query = f"SELECT pmid, title, authors, abstract, publication_year FROM articles WHERE pmid IN ({','.join(['?']*len(pmids))})"
+        cursor.execute(query, tuple(pmids))
+        rows = cursor.fetchall()
+        cursor.close()
+        # Convert rows to list of dictionaries
+        documents = []
+        for row in rows:
+            documents.append({
+                'pmid': row[0],
+                'title': row[1],
+                'authors': row[2],
+                'abstract': row[3],
+                'publication_year': row[4]
+            })
+        return documents
+    
+    def embed_query(self, query):
+        inputs = self.tokenizer(query, return_tensors='pt')
+        with torch.no_grad():
+            outputs = self.model(**inputs)
+        query_vector = outputs.last_hidden_state.mean(dim=1).squeeze().numpy()
+        return query_vector.astype('float32')
+    
+    def search(self, query, top_k=10):
+        query_vector = self.embed_query(query)
+        distances, indices = self.index.search(np.array([query_vector]), top_k)
+        pmids = self.doc_ids_memmap[indices[0]]
+        documents = self._fetch_document_info(pmids)
+        return distances, documents
 
 # Example usage:
 if __name__ == "__main__":
-    db_file = "pubmed_data.db"
-    vector_file = "embedded_vectors.npy"
-    pmid_file = "pmids.npy"
+    vectors_file = 'embeddings_test.dat'
+    ids_file = 'pmids_test.dat'
+    db_file = 'pubmed_db.db'
 
-    retriever = AbstractRetriever(db_file, vector_file, pmid_file)
+    retriever = AbstractRetriever(vectors_file, ids_file, db_file)
+    query = "example search query"
+    distances, results = retriever.search(query, top_k=10)
 
-    # Example query embedding (replace with an actual embedding)
-    query = input("Enter your query: ")
-    query_embedding = AbstractRetriever.embed_query(query)
-
-    top_k = 5
-    similar_abstracts, similarities = retriever.find_similar_abstracts(query_embedding, top_k)
-    
-    for i, (abstract, similarity) in enumerate(zip(similar_abstracts, similarities)):
-        print(f"Rank {i + 1}, Similarity: {similarity}")
-        print(f"PMID: {abstract[0]}")
-        print(f"Title: {abstract[1]}")
-        print(f"Authors: {abstract[2]}")
-        print(f"Abstract: {abstract[3]}")
-        print(f"Publication Year: {abstract[4]}")
-        print("-----")
+    print("Top K results:", results)
