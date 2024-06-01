@@ -58,9 +58,6 @@ def process_chunk(cursor, tokenizer, model, start, chunk_size, device, file):
 
     process_chunk.start_idx += len(pmids)
 
-    #for pid, emb in zip(pmids, embeddings):
-    #    write_pair_to_file(file, pid, emb)
-
     return True  # Records processed
 
 # Function to get the saved offset
@@ -80,9 +77,9 @@ conn = sqlite3.connect(DB_FILE)
 cursor = conn.cursor()
 
 # Get the total number of records
-#cursor.execute("SELECT COUNT(*) FROM articles")
-#total_records = cursor.fetchone()[0]
-total_records = 25_337_445 # just to speed it up
+cursor.execute("SELECT COUNT(*) FROM articles")
+total_records = cursor.fetchone()[0]
+#total_records = 25_337_445 # just to speed it up
 
 # Define chunk size
 chunk_size = 25
