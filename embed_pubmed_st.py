@@ -22,7 +22,7 @@ model.eval()  # Set the model to evaluation mode
 # Function to embed text snippets
 def embed_texts(texts, tokenizer, model, device):
     with torch.no_grad():
-        inputs = tokenizer(texts, 
+        inputs = tokenizer(["search_document: " + text for text in texts], 
                            padding=True, 
                            truncation=True, 
                            return_tensors="pt").to(device)
@@ -115,5 +115,3 @@ embedding_mmap.flush()
 conn.close()
 
 print("Embedding process completed and saved to a binary file.")
-
-

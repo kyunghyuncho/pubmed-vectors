@@ -67,7 +67,7 @@ class AbstractRetriever:
         return documents
     
     def embed_query(self, query):
-        inputs = self.tokenizer(query, return_tensors='pt')
+        inputs = self.tokenizer("search_query: " + query, return_tensors='pt')
         with torch.no_grad():
             outputs = self.model(**inputs)
         query_vector = outputs.last_hidden_state.mean(dim=1).squeeze().numpy()
