@@ -9,7 +9,6 @@ from array_io import write_pair_to_file, read_pair_from_file
 
 # file paths
 DB_FILE="pubmed_data.db"
-SAVE_FILE="pubmed_embeddings.bin"
 
 # Check if GPU is available
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -32,7 +31,7 @@ def embed_texts(texts, tokenizer, model, device):
     return embeddings
 
 # Function to process a chunk of records
-def process_chunk(cursor, tokenizer, model, start, chunk_size, device, file):
+def process_chunk(cursor, tokenizer, model, start, chunk_size, device):
     records = cursor.fetchmany(chunk_size)
 
     if not records:
@@ -77,9 +76,9 @@ conn = sqlite3.connect(DB_FILE)
 cursor = conn.cursor()
 
 # Get the total number of records
-cursor.execute("SELECT COUNT(*) FROM articles")
-total_records = cursor.fetchone()[0]
-#total_records = 25_337_445 # just to speed it up
+#cursor.execute("SELECT COUNT(*) FROM articles")
+#total_records = cursor.fetchone()[0]
+total_records = 25_337_445 # just to speed it up
 
 # Define chunk size
 chunk_size = 25
@@ -101,11 +100,10 @@ process_chunk.pmid_mmap = pmid_mmap
 process_chunk.embedding_mmap = embedding_mmap
 process_chunk.start_idx = 0
 
-with open(SAVE_FILE, "ab") as file:
-    # Process records in chunks
-    for start in tqdm(range(start_offset, total_records, chunk_size)):
-        process_chunk(cursor, tokenizer, model, start, chunk_size, device, file)
-        #save_offset(offset_file, start + chunk_size)
+# Process records in chunks
+for start in tqdm(range(start_offset, total_records, chunk_size)):
+    process_chunk(cursor, tokenizer, model, start, chunk_size, device)
+    #save_offset(offset_file, start + chunk_size)
 
 # Flush changes to disk
 pmid_mmap.flush()
