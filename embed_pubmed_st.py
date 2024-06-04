@@ -21,14 +21,30 @@ model.eval()  # Set the model to evaluation mode
 # Function to embed text snippets
 def embed_texts(texts, tokenizer, model, device):
     with torch.no_grad():
-        inputs = tokenizer(["search_document: " + text for text in texts], 
-                           padding=True, 
-                           truncation=True, 
-                           return_tensors="pt").to(device)
+        inputs = tokenizer(
+            ["search_document: " + text for text in texts],
+            padding=True,
+            truncation=True,
+            return_tensors="pt"
+        ).to(device)
+
         outputs = model(**inputs)
-        embeddings = outputs.last_hidden_state.mean(dim=1).cpu().numpy()  # Taking the mean of the hidden states as the embedding
+
+        # Get the attention mask and convert it to float
+        attention_mask = inputs['attention_mask'].unsqueeze(-1).expand(outputs.last_hidden_state.size()).float()
+        
+        # Mask the hidden states
+        masked_hidden_states = outputs.last_hidden_state * attention_mask
+        
+        # Calculate the sum of the hidden states and the sum of the attention mask
+        summed_hidden_states = masked_hidden_states.sum(dim=1)
+        summed_mask = attention_mask.sum(dim=1)
+
+        # Calculate the mean by dividing the summed hidden states by the summed mask
+        embeddings = (summed_hidden_states / summed_mask).cpu().numpy()
 
     return embeddings
+
 
 # Function to process a chunk of records
 def process_chunk(cursor, tokenizer, model, start, chunk_size, device):
@@ -78,7 +94,7 @@ cursor = conn.cursor()
 # Get the total number of records
 #cursor.execute("SELECT COUNT(*) FROM articles")
 #total_records = cursor.fetchone()[0]
-total_records = 25_337_445 # just to speed it up
+total_records = 36_510_005 # the correct number
 
 # Define chunk size
 chunk_size = 25
@@ -91,7 +107,7 @@ print(f"Embedding dim {embedding_dim}")
 # Create memory-mapped files for PMIDs and embeddings
 pmid_mmap = np.memmap('pmids_test.dat', dtype='int64', mode='w+', shape=(total_records,))
 embedding_mmap = np.memmap('embeddings_test.dat', dtype='float32', mode='w+', shape=(total_records, embedding_dim))
-
+ 
 start_offset = 0
 cursor = cursor.execute(f"SELECT pmid, title, abstract FROM articles")
 
@@ -103,7 +119,6 @@ process_chunk.start_idx = 0
 # Process records in chunks
 for start in tqdm(range(start_offset, total_records, chunk_size)):
     process_chunk(cursor, tokenizer, model, start, chunk_size, device)
-    #save_offset(offset_file, start + chunk_size)
 
 # Flush changes to disk
 pmid_mmap.flush()
