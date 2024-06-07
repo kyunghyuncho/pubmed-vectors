@@ -63,11 +63,17 @@ def process_chunk(cursor, tokenizer, model, start, chunk_size, device):
             texts.append(abstract)
         pmids.append(int(pmid))
 
+    start_idx = process_chunk.start_idx
+
+    if np.sum(process_chunk.pmid_mmap[start_idx:start_idx + len(pmids)]) > 0:
+        #print(f'processed: {start_idx} -- {start_idx + len(pmids)}')
+        process_chunk.start_idx += len(pmids)
+        return True
+
     # Embed the texts
     embeddings = embed_texts(texts, tokenizer, model, device)
 
     # Save PMIDs and embeddings to memory-mapped arrays
-    start_idx = process_chunk.start_idx
     process_chunk.pmid_mmap[start_idx:start_idx + len(pmids)] = pmids
     process_chunk.embedding_mmap[start_idx:start_idx + len(pmids), :] = embeddings
 
@@ -97,7 +103,7 @@ cursor = conn.cursor()
 total_records = 36_510_005 # the correct number
 
 # Define chunk size
-chunk_size = 25
+chunk_size = 10
 
 # Determine the embedding size (dimensionality)
 dummy_embedding = embed_texts(["dummy text"], tokenizer, model, device)
@@ -105,8 +111,9 @@ embedding_dim = dummy_embedding.shape[1]
 print(f"Embedding dim {embedding_dim}")
 
 # Create memory-mapped files for PMIDs and embeddings
-pmid_mmap = np.memmap('pmids_test.dat', dtype='int64', mode='w+', shape=(total_records,))
-embedding_mmap = np.memmap('embeddings_test.dat', dtype='float32', mode='w+', shape=(total_records, embedding_dim))
+# be careful of the mode
+pmid_mmap = np.memmap('pmids_test.dat', dtype='int64', mode='r+', shape=(total_records,))
+embedding_mmap = np.memmap('embeddings_test.dat', dtype='float32', mode='r+', shape=(total_records, embedding_dim))
  
 start_offset = 0
 cursor = cursor.execute(f"SELECT pmid, title, abstract FROM articles")
