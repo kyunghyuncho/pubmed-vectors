@@ -79,7 +79,7 @@ class AbstractRetriever:
     
     def search(self, query, top_k=10):
         query_vector = self.embed_query(query)
-        query_vector = query_vector/np.linalg.norm(query_vector)
+        query_vector = query_vector / ((query_vector ** 2).sum() ** 0.5)
         
         # compute the cosine distance between all rows in self.doc_vectors_memmap and query.
         # do it in chunks to avoid memory errors.
@@ -91,8 +91,11 @@ class AbstractRetriever:
             end = min(i + self.chunk_size, self.num_rows)
             chunk = self.doc_vectors_memmap[i:end]
 
-            # use cosine similarity to compute distances
-            chunk_distances = np.dot(chunk/np.linalg.norm(chunk, axis=1, keepdims=True), query_vector)
+            # use cosine similarity to compute distances.
+            # TODO: it's probably a better idea to normalize all vectors in advance.
+            norms = (chunk ** 2).sum(axis=1) ** 0.5
+            chunk_distances = (chunk * query_vector[None, :]).sum(axis=1)
+            chunk_distances /= norms
             chunk_indices = np.arange(i, end)
             for j in range(top_k):
                 min_index = np.argmin(distances)
