@@ -1,25 +1,29 @@
 import numpy as np
 import os
-import faiss
 from transformers import AutoTokenizer, AutoModel
 import torch
 import sqlite3
+from tqdm import tqdm
+
+CHUNK_SIZE=10_000
 
 class AbstractRetriever:
-    def __init__(self, vectors_file, ids_file, db_file, model_name="nomic-ai/nomic-embed-text-v1.5"):
+    def __init__(self, vectors_file, ids_file, db_file, 
+                 model_name="nomic-ai/nomic-embed-text-v1.5",
+                 chunk_size=CHUNK_SIZE):
         self.vectors_file = vectors_file
         self.ids_file = ids_file
         self.db_file = db_file
         self.model_name = model_name
-        self.tokenizer = AutoTokenizer.from_pretrained(model_name)
-        self.model = AutoModel.from_pretrained(model_name)
+        self.chunk_size = chunk_size
+        self.tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
+        self.model = AutoModel.from_pretrained(model_name, trust_remote_code=True)
         self.dimension = self._infer_dimension()
         self.dtype_vectors = 'float32'
         self.dtype_ids = 'int64'
         self.num_rows = self._get_num_rows()
         self.doc_vectors_memmap = np.memmap(vectors_file, dtype=self.dtype_vectors, mode='r', shape=(self.num_rows, self.dimension))
         self.doc_ids_memmap = np.memmap(ids_file, dtype=self.dtype_ids, mode='r', shape=(self.num_rows,))
-        self.index = self._build_faiss_index()
         self.connection = self._connect_db()
     
     def _infer_dimension(self):
@@ -36,13 +40,8 @@ class AbstractRetriever:
         ids_size = os.path.getsize(self.ids_file)
         num_rows_vectors = vectors_size // (np.dtype(self.dtype_vectors).itemsize * self.dimension)
         num_rows_ids = ids_size // np.dtype(self.dtype_ids).itemsize
-        assert num_rows_vectors == num_rows_ids, "Number of rows in vectors and ids files must match"
+        assert num_rows_vectors == num_rows_ids, f"Number of rows in vectors {num_rows_vectors} and ids {num_rows_ids} files must match"
         return num_rows_vectors
-    
-    def _build_faiss_index(self):
-        index = faiss.IndexFlatL2(self.dimension)
-        index.add(self.doc_vectors_memmap)
-        return index
     
     def _connect_db(self):
         connection = sqlite3.connect(self.db_file)
@@ -50,10 +49,15 @@ class AbstractRetriever:
     
     def _fetch_document_info(self, pmids):
         cursor = self.connection.cursor()
-        query = f"SELECT pmid, title, authors, abstract, publication_year FROM articles WHERE pmid IN ({','.join(['?']*len(pmids))})"
-        cursor.execute(query, tuple(pmids))
+
+        query = "SELECT pmid, title, authors, abstract, publication_year FROM articles WHERE pmid IN ("
+        query += ",".join([str(id) for id in pmids])
+        query += ")"
+
+        cursor.execute(query)
         rows = cursor.fetchall()
         cursor.close()
+
         # Convert rows to list of dictionaries
         documents = []
         for row in rows:
@@ -75,10 +79,31 @@ class AbstractRetriever:
     
     def search(self, query, top_k=10):
         query_vector = self.embed_query(query)
-        distances, indices = self.index.search(np.array([query_vector]), top_k)
-        pmids = self.doc_ids_memmap[indices[0]]
+        query_vector = query_vector/np.linalg.norm(query_vector)
+        
+        # compute the cosine distance between all rows in self.doc_vectors_memmap and query.
+        # do it in chunks to avoid memory errors.
+        # keep only top-k distances and corresponding indices.
+        # do not keep all distances to save memory.
+        distances = np.zeros(top_k, dtype='float32')
+        indices = np.zeros(top_k, dtype='int64')
+        for i in tqdm(range(0, self.num_rows, self.chunk_size)):
+            end = min(i + self.chunk_size, self.num_rows)
+            chunk = self.doc_vectors_memmap[i:end]
+
+            # use cosine similarity to compute distances
+            chunk_distances = np.dot(chunk/np.linalg.norm(chunk, axis=1, keepdims=True), query_vector)
+            chunk_indices = np.arange(i, end)
+            for j in range(top_k):
+                min_index = np.argmin(distances)
+                if chunk_distances[j] > distances[min_index]:
+                    distances[min_index] = chunk_distances[j]
+                    indices[min_index] = chunk_indices[j]
+
+        pmids = self.doc_ids_memmap[indices]
         documents = self._fetch_document_info(pmids)
-        return distances, documents
+
+        return pmids, distances, documents
 
 # Example usage:
 if __name__ == "__main__":
