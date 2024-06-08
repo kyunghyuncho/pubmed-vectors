@@ -10,22 +10,45 @@ CHUNK_SIZE=10_000
 class AbstractRetriever:
     def __init__(self, vectors_file, ids_file, db_file, 
                  model_name="nomic-ai/nomic-embed-text-v1.5",
-                 chunk_size=CHUNK_SIZE):
+                 chunk_size=CHUNK_SIZE,
+                 use_cosine=True):
         self.vectors_file = vectors_file
         self.ids_file = ids_file
         self.db_file = db_file
         self.model_name = model_name
         self.chunk_size = chunk_size
+        self.use_cosine = use_cosine
+
         self.tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
         self.model = AutoModel.from_pretrained(model_name, trust_remote_code=True)
         self.dimension = self._infer_dimension()
+
         self.dtype_vectors = 'float32'
         self.dtype_ids = 'int64'
         self.num_rows = self._get_num_rows()
         self.doc_vectors_memmap = np.memmap(vectors_file, dtype=self.dtype_vectors, mode='r', shape=(self.num_rows, self.dimension))
         self.doc_ids_memmap = np.memmap(ids_file, dtype=self.dtype_ids, mode='r', shape=(self.num_rows,))
+
         self.connection = self._connect_db()
+
+        if self.use_cosine:
+            # check if the norms were saved in vectors_file+".norm.npy"
+            norms_file = vectors_file + ".norm.npy"
+            if os.path.exists(norms_file):
+                self.norms = np.load(norms_file)
+            else:
+                self.norms = self._compute_norms()
+                np.save(norms_file, self.norms)
     
+    def _compute_norms(self):
+        # compute the L2 norm of the embeddings chunk-wise.
+        norms = []
+        for i in tqdm(range(0, self.num_rows, self.chunk_size)):
+            end = min(i + self.chunk_size, self.num_rows)
+            norms_chunk = (self.doc_vectors_memmap[i:end] ** 2).sum(axis=1) ** 0.5
+            norms += norms_chunk.tolist()
+        return norms
+
     def _infer_dimension(self):
         dummy_query = "dummy"
         inputs = self.tokenizer(dummy_query, return_tensors='pt')
@@ -79,7 +102,8 @@ class AbstractRetriever:
     
     def search(self, query, top_k=10):
         query_vector = self.embed_query(query)
-        query_vector = query_vector / ((query_vector ** 2).sum() ** 0.5)
+        if self.use_cosine:
+            query_vector = query_vector / ((query_vector ** 2).sum() ** 0.5)
         
         # compute the cosine distance between all rows in self.doc_vectors_memmap and query.
         # do it in chunks to avoid memory errors.
@@ -92,10 +116,10 @@ class AbstractRetriever:
             chunk = self.doc_vectors_memmap[i:end]
 
             # use cosine similarity to compute distances.
-            # TODO: it's probably a better idea to normalize all vectors in advance.
-            norms = (chunk ** 2).sum(axis=1) ** 0.5
             chunk_distances = (chunk * query_vector[None, :]).sum(axis=1)
-            chunk_distances /= norms
+            if self.use_cosine:
+                norms = self.norms[i:end]
+                chunk_distances /= norms
             chunk_indices = np.arange(i, end)
             for j in range(top_k):
                 min_index = np.argmin(distances)
