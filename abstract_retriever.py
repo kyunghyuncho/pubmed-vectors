@@ -4,6 +4,7 @@ from transformers import AutoTokenizer, AutoModel
 import torch
 import sqlite3
 from tqdm import tqdm
+import torch
 
 CHUNK_SIZE=10_000
 
@@ -11,13 +12,22 @@ class AbstractRetriever:
     def __init__(self, vectors_file, ids_file, db_file, 
                  model_name="nomic-ai/nomic-embed-text-v1.5",
                  chunk_size=CHUNK_SIZE,
-                 use_cosine=True):
+                 use_cosine=True,
+                 use_cuda=False):
         self.vectors_file = vectors_file
         self.ids_file = ids_file
         self.db_file = db_file
         self.model_name = model_name
         self.chunk_size = chunk_size
         self.use_cosine = use_cosine
+
+        # check if cuda is available
+        if use_cuda and torch.cuda.is_available():
+            self.device = torch.device('cuda')
+            self.use_cuda = True
+        else:
+            self.device = torch.device('cpu')
+            self.use_cuda = False
 
         self.tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
         self.model = AutoModel.from_pretrained(model_name, trust_remote_code=True)
@@ -104,6 +114,8 @@ class AbstractRetriever:
         query_vector = self.embed_query(query)
         if self.use_cosine:
             query_vector = query_vector / ((query_vector ** 2).sum() ** 0.5)
+        if self.use_cuda:
+            query_vector = torch.tensor(query_vector, device=self.device)
         
         # compute the cosine distance between all rows in self.doc_vectors_memmap and query.
         # do it in chunks to avoid memory errors.
@@ -114,15 +126,31 @@ class AbstractRetriever:
         for i in tqdm(range(0, self.num_rows, self.chunk_size)):
             end = min(i + self.chunk_size, self.num_rows)
             chunk = self.doc_vectors_memmap[i:end]
+            if self.use_cuda:
+                chunk = torch.tensor(chunk, device=self.device)
 
             # use cosine similarity to compute distances.
             chunk_distances = (chunk * query_vector[None, :]).sum(axis=1)
             if self.use_cosine:
                 norms = self.norms[i:end]
+                if self.use_cuda:
+                    norms = torch.tensor(norms, device=self.device)
                 chunk_distances /= norms
+            if self.use_cuda:
+                chunk_distances = chunk_distances.cpu().numpy()
             chunk_indices = np.arange(i, end)
-            for j in range(top_k):
-                min_index = np.argmin(distances)
+
+            # Get indices of the smallest 'top_k' elements in distances
+            num_elements = len(distances)
+
+            # Ensure top_k is within the valid range
+            if top_k > num_elements:
+                top_k = num_elements
+
+            # Get indices of the smallest 'top_k' elements in distances
+            min_indices = np.argpartition(distances, top_k - 1)[:top_k]
+
+            for j, min_index in zip(range(top_k), min_indices):
                 if chunk_distances[j] > distances[min_index]:
                     distances[min_index] = chunk_distances[j]
                     indices[min_index] = chunk_indices[j]
