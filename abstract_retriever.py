@@ -112,9 +112,7 @@ class AbstractRetriever:
                 similarities = all_similarities[max_indices]
                 indices = all_indices[max_indices]
 
-            top_indices = [index for _, index in sorted(heap, reverse=True)]
-            top_similarities = [similarity for similarity, _ in sorted(heap, reverse=True)]
-            pmids = self.doc_ids[top_indices]
+            pmids = self.doc_ids[indices]
             documents = self._fetch_document_info(pmids)
 
         return top_similarities, documents
