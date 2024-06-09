@@ -33,11 +33,11 @@ class AbstractRetriever:
         self.connection = self._connect_db()
     
     def _load_hdf5_data(self):
-        self.h5file = h5py.File(self.hdf5_file, 'r', rdcc_nbytes=4 * 1024 * 1024 * 1024)
+        self.h5file = h5py.File(self.hdf5_file, 'r')
         self.doc_vectors = self.h5file['doc_vectors']
         self.doc_ids = self.h5file['doc_ids']
-        # self.num_rows = self.doc_vectors.shape[0]
-        self.num_rows = 1000
+        self.num_rows = self.doc_vectors.shape[0]
+        # self.num_rows = 1000
     
     def _connect_db(self):
         connection = sqlite3.connect(self.db_file)
