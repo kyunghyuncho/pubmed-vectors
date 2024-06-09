@@ -12,11 +12,13 @@ class AbstractRetriever:
     def __init__(self, hdf5_file, db_file, 
                  model_name="nomic-ai/nomic-embed-text-v1.5", 
                  chunk_size=10000,
-                 use_cuda=False):
+                 use_cuda=False,
+                 use_cosine=True):
         self.hdf5_file = hdf5_file
         self.db_file = db_file
         self.model_name = model_name
         self.chunk_size = chunk_size
+        self.use_cosine = use_cosine
 
         # check if cuda is available
         if use_cuda and torch.cuda.is_available():
@@ -77,8 +79,9 @@ class AbstractRetriever:
         query_vector = self.embed_query(query)
         if self.use_cuda:
             query_vector = torch.tensor(query_vector, device=self.device)
-        query_norm = (query_vector ** 2).sum() ** 0.5
-        query_vector = query_vector / query_norm
+        if self.use_cosine:
+            query_norm = (query_vector ** 2).sum() ** 0.5
+            query_vector = query_vector / query_norm
 
         similarities = -10_000. * np.ones(top_k, dtype='float32')
         indices = np.zeros(top_k, dtype='int64')
@@ -92,9 +95,13 @@ class AbstractRetriever:
                     chunk_vectors = torch.tensor(chunk_vectors, device=self.device)
                 chunk_indices = np.arange(start, end)
 
-                chunk_norms = (chunk_vectors ** 2).sum(axis=1) ** 0.5
                 dot_products = (chunk_vectors * query_vector[None, :]).sum(axis=1)
-                chunk_similarities = dot_products / chunk_norms
+
+                if self.use_cosine:              
+                    chunk_norms = (chunk_vectors ** 2).sum(axis=1) ** 0.5
+                    chunk_similarities = dot_products / chunk_norms
+                else:
+                    chunk_similarities = dot_products
 
                 if self.use_cuda:
                     chunk_similarities = chunk_similarities.cpu().numpy()
