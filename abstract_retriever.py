@@ -99,13 +99,12 @@ class AbstractRetriever:
 
                 if self.use_cosine:              
                     chunk_norms = (chunk_vectors ** 2).sum(axis=1) ** 0.5
-                    chunk_similarities = dot_products / chunk_norms
+                    chunk_similarities = dot_products / torch.clamp(chunk_norms, min=1e-5)
                 else:
                     chunk_similarities = dot_products
 
                 if self.use_cuda:
                     max_values, max_indices = torch.topk(chunk_similarities, top_k)
-
                     chunk_similarities = max_values.cpu().numpy()
                     chunk_indices = chunk_indices[max_indices.cpu()]
                 else:
@@ -113,6 +112,10 @@ class AbstractRetriever:
                     max_indices = np.argpartition(chunk_similarities, -top_k)[-top_k:]
                     chunk_similarities = chunk_similarities[max_indices]
                     chunk_indices = chunk_indices[max_indices]
+
+                if np.sum(np.isnan(chunk_similarities)) > 0:
+                    # there are nan's.
+                    raise Exception("NaN found")
 
                 # combine similarities and chunk_similarities, and indices and chunk_indices.
                 # find the top-k similarities and corresponding indices.
@@ -129,6 +132,7 @@ class AbstractRetriever:
             similarities = similarities[idx]
 
             pmids = self.doc_ids[indices]
+
             documents = self._fetch_document_info(pmids)
 
         return pmids, similarities, documents
