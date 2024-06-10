@@ -9,3 +9,4 @@ aiofiles
 einops
 nomic[local]
 h5py
+jupyterlab
