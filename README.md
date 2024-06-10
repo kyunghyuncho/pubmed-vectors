@@ -2,7 +2,14 @@
 
 in this repository, i demonstrate how one can download a whole set of abstracts from PubMed (`download_pubmed.py`) into a sqlite3 database file, embed each abstract (title if the abstract is empty) into a high-dimensional dense vector using Nomic's embedding model (`embed_pubmed_st.py`) and search through the abstracts given a new query (`test_pubmed.py`). it is the most naive version of such a dense vector based retrieval system, and obviously, is very very slow (expect about 5 minutes for a single query, unless you're loading up the whole .h5 file on memory.)
 
-due to my stupidity earlier, `embed_pubmed_st.py` uses numpy memmap'd arrayes, which is absolutely unnecessary and wasteful. it is thus necessary to convert these arrays into a hdf5 file with `convert_dat_to_h5.py`. mea culpa. 
+to run `test_pubmed.py`, you need the following files:
+
+1. `pubmed_abstracts_2024.db`: a sqlite3 database containing all pubmed abstracts (34GB)
+2. `pubmed_embeddings.h5`: a set of abstract embedding vectors (~105GB)
+
+you can either reach out to me directly, or you can produce these files relatively easily by running `download_pubmed.py`, `embed_pubmed_st.py` and `test_pubmed.py`,in sequence. why three scripts and not two scripts? due to my stupidity earlier, `embed_pubmed_st.py` uses numpy memmap'd arrayes, which is absolutely unnecessary and wasteful. it is thus necessary to convert these arrays into a hdf5 file with `convert_dat_to_h5.py`. mea culpa. 
+
+if you feel lazy, you can try in lightning studio at https://lightning.ai/kc119/studios/dense-vector-retrieval-for-pubmed-abstracts-with-nomic-ai, although it will be very very slow (expect some delay in the initial loading and about 7-9 minutes per query.) from this studio, you should be able to download these files directly as well.
 
 here are some samples:
 
