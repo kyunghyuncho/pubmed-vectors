@@ -104,12 +104,15 @@ class AbstractRetriever:
                     chunk_similarities = dot_products
 
                 if self.use_cuda:
-                    chunk_similarities = chunk_similarities.cpu().numpy()
+                    max_values, max_indices = torch.topk(chunk_similarities, top_k)
 
-                # Get indices of the largest 'top_k' elements in similarities
-                max_indices = np.argpartition(chunk_similarities, -top_k)[-top_k:]
-                chunk_similarities = chunk_similarities[max_indices]
-                chunk_indices = chunk_indices[max_indices]
+                    chunk_similarities = max_values.cpu().numpy()
+                    chunk_indices = chunk_indices[max_indices.cpu()]
+                else:
+                    # Get indices of the largest 'top_k' elements in similarities
+                    max_indices = np.argpartition(chunk_similarities, -top_k)[-top_k:]
+                    chunk_similarities = chunk_similarities[max_indices]
+                    chunk_indices = chunk_indices[max_indices]
 
                 # combine similarities and chunk_similarities, and indices and chunk_indices.
                 # find the top-k similarities and corresponding indices.
