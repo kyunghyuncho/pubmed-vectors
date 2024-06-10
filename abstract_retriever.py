@@ -99,7 +99,10 @@ class AbstractRetriever:
 
                 if self.use_cosine:              
                     chunk_norms = (chunk_vectors ** 2).sum(axis=1) ** 0.5
-                    chunk_similarities = dot_products / torch.clamp(chunk_norms, min=1e-5)
+                    if self.use_cuda:
+                        chunk_similarities = dot_products / torch.clamp(chunk_norms, min=1e-5)
+                    else:
+                        chunk_similarities = dot_products / np.maximum(chunk_norms, 1e-5)
                 else:
                     chunk_similarities = dot_products
 
