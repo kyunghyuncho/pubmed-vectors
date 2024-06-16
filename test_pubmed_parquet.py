@@ -3,7 +3,7 @@ from abstract_retriever_parquet import AbstractRetrieverParquet
 s3_path = "s3://prescient-roche-lm/data/pubmed_embeddings.parquet"
 db_file = "pubmed_abstracts_2024.db"
 
-retriever = AbstractRetrieverParquet(s3_path, db_file, chunk_size='4GB')
+retriever = AbstractRetrieverParquet(s3_path, db_file, chunk_size='2GB')
 
 while True:
     # Example query embedding (replace with an actual embedding)

@@ -16,6 +16,7 @@ def _cosine_similarity(v1, v2):
 def _get_top_k(chunk, query_vector, k):
     chunk['cosine_similarity'] = chunk['doc_vector'].apply(lambda x: _cosine_similarity(np.array(x), query_vector)) 
     top_k_chunk = chunk.nlargest(k, 'cosine_similarity')
+    top_k_chunk = top_k_chunk.drop(columns=['doc_vector'])  # Drop the doc_vector column
     return top_k_chunk
 
 class AbstractRetrieverParquet:
@@ -83,8 +84,9 @@ class AbstractRetrieverParquet:
         if num_records:
             df = df.head(num_records, compute=False)
 
-        # Create meta data for the output DataFrame
-        meta = df._meta.assign(cosine_similarity=np.float64())
+        # Create meta data for the output DataFrame without the doc_vector column
+        meta = df._meta.drop(columns=['doc_vector']).assign(cosine_similarity=np.float64())
+
 
         # Wrap the Dask computation with a progress bar
         with ProgressBar():
@@ -102,17 +104,5 @@ class AbstractRetrieverParquet:
         documents = self._fetch_document_info(pmids)
 
         return pmids, similarities, documents
-
-
-# Example usage:
-# s3_path = 's3://your-bucket-name/path/to/your_parquet_file.parquet'
-# query_vector = [your_query_vector_values]  # Replace with your actual query vector values
-# retriever = AbstractRetrieverParquet(s3_path, query_vector, chunksize='2GB')
-# k = 10
-# top_k_rows = retriever.retrieve_top_k(k)
-# print(top_k_rows)
-# Optional: Save the results to a new Parquet file
-# output_path = 's3://your-bucket-name/path/to/output_top_k.parquet'
-# retriever.save_top_k(output_path, k)
 
 
