@@ -12,3 +12,5 @@ h5py
 jupyterlab
 pyarrow
 pandas
+dask[complete]
+s3fs
