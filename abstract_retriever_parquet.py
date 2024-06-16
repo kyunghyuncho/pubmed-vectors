@@ -11,7 +11,7 @@ def _cosine_similarity(v1, v2):
     dot_product = np.dot(v1, v2)
     norm_v1 = np.linalg.norm(v1)
     norm_v2 = np.linalg.norm(v2)
-    return dot_product / (norm_v1 * norm_v2)
+    return dot_product / np.maximum(norm_v1 * norm_v2, 1e-5)
 
 def _get_top_k(chunk, query_vector, k):
     chunk['cosine_similarity'] = chunk['doc_vector'].apply(lambda x: _cosine_similarity(np.array(x), query_vector)) 
