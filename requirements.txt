@@ -10,3 +10,5 @@ einops
 nomic[local]
 h5py
 jupyterlab
+pyarrow
+pandas
